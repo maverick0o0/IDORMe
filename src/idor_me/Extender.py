@@ -32,11 +32,29 @@ except Exception:  # pragma: no cover - unit tests
     class IMessageEditorController(object):
         pass
 
-from .core.executor import RequestExecutor
-from .core.mutator import Mutator, MutationContext
-from .core.owner_infer import OwnerInference
-from .core.httpmsg import HttpRequest
-from .ui.MainPanel import MainPanel
+try:  # pragma: no cover - import resolution differs inside Burp/Jython
+    from .core.executor import RequestExecutor
+    from .core.mutator import Mutator, MutationContext
+    from .core.owner_infer import OwnerInference
+    from .core.httpmsg import HttpRequest
+    from .ui.MainPanel import MainPanel
+except ValueError:  # pragma: no cover - executed when run as a loose script
+    # When the extender is executed as a stand-alone script (for example when
+    # Burp loads the file without treating ``src`` as a package root) the
+    # relative imports above fail.  Fall back to absolute imports after adding
+    # the project root to ``sys.path`` so the module can still be imported.
+    import os
+    import sys
+
+    _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _ROOT not in sys.path:
+        sys.path.insert(0, _ROOT)
+
+    from core.executor import RequestExecutor
+    from core.mutator import Mutator, MutationContext
+    from core.owner_infer import OwnerInference
+    from core.httpmsg import HttpRequest
+    from ui.MainPanel import MainPanel
 
 
 class BurpExtender(
