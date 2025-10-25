@@ -51,9 +51,26 @@ except (ImportError, ValueError):  # pragma: no cover - executed when run as a l
         module_path = os.getcwd()
     if not os.path.isabs(module_path):
         module_path = os.path.join(os.getcwd(), module_path)
-    _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(module_path)))
-    if _ROOT not in sys.path:
-        sys.path.insert(0, _ROOT)
+
+    module_dir = os.path.dirname(os.path.abspath(module_path))
+    search_dir = module_dir
+    package_root = None
+    while True:
+        candidate = os.path.join(search_dir, "idor_me", "__init__.py")
+        if os.path.isfile(candidate):
+            package_root = search_dir
+            break
+        parent = os.path.dirname(search_dir)
+        if not parent or parent == search_dir:
+            break
+        search_dir = parent
+
+    if package_root is None:
+        package_root = os.path.dirname(module_dir)
+
+    for path in (module_dir, package_root):
+        if path and path not in sys.path:
+            sys.path.insert(0, path)
 
     from idor_me.core.executor import RequestExecutor
     from idor_me.core.mutator import Mutator, MutationContext
