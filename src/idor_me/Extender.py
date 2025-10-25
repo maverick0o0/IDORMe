@@ -55,11 +55,11 @@ except (ImportError, ValueError):  # pragma: no cover - executed when run as a l
     if _ROOT not in sys.path:
         sys.path.insert(0, _ROOT)
 
-    from core.executor import RequestExecutor
-    from core.mutator import Mutator, MutationContext
-    from core.owner_infer import OwnerInference
-    from core.httpmsg import HttpRequest
-    from ui.MainPanel import MainPanel
+    from idor_me.core.executor import RequestExecutor
+    from idor_me.core.mutator import Mutator, MutationContext
+    from idor_me.core.owner_infer import OwnerInference
+    from idor_me.core.httpmsg import HttpRequest
+    from idor_me.ui.MainPanel import MainPanel
 
 
 class BurpExtender(
