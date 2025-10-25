@@ -1,22 +1,20 @@
-import random
-from importlib import util as importlib_util
+import importlib.util
 from pathlib import Path
 
-module_path = Path(__file__).resolve().parent.parent / "src" / "idorme" / "request_utils.py"
-spec = importlib_util.spec_from_file_location("idorme.request_utils", module_path)
-request_utils = importlib_util.module_from_spec(spec)
-assert spec.loader is not None  # satisfy type checkers
+
+MODULE_PATH = Path(__file__).resolve().parent.parent / "src" / "idorme" / "request_utils.py"
+spec = importlib.util.spec_from_file_location("idorme.request_utils", MODULE_PATH)
+request_utils = importlib.util.module_from_spec(spec)
+assert spec is not None and spec.loader is not None
 spec.loader.exec_module(request_utils)
+RequestTemplate = request_utils.RequestTemplate
 
-pick_random_identifier = request_utils.pick_random_identifier
 
+def test_set_query_pairs_encodes_plain_strings_without_bytes_prefix():
+    template = RequestTemplate("GET", "/", "", [], b"")
+    builder = template.builder()
 
-def test_pick_random_identifier_excludes_string_values(monkeypatch):
-    calls = iter([1234, 5678])
+    builder.set_query_pairs([("userId", 100)])
 
-    def fake_randint(start, stop):
-        return next(calls)
+    assert builder.query_string == "userId=100"
 
-    monkeypatch.setattr(random, "randint", fake_randint)
-
-    assert pick_random_identifier(exclude=["1234"]) == "5678"
