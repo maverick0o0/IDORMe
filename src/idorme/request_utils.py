@@ -199,11 +199,14 @@ def _replace_header_in_list(headers, name, value):
 
 
 def _quote(value):
-    if isinstance(value, unicode):  # noqa: F821 - Py2 specific
+    if isinstance(value, bytes):
+        try:
+            value = value.decode("utf-8")
+        except UnicodeDecodeError:
+            value = value.decode("latin-1")
+    elif "unicode" in globals() and isinstance(value, unicode) and not isinstance(value, str):  # noqa: F821 - Py2 specific
         value = value.encode("utf-8")
-    if isinstance(value, str):
-        value = value
-    else:
+    elif not isinstance(value, str):
         value = str(value)
     return quote_plus(value)
 
