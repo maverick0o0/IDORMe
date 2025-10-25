@@ -97,7 +97,20 @@ class OwnerInference(object):
     def extract_tokens(self, body):
         if not body:
             return []
-        text = body if isinstance(body, basestring) else body.decode("utf-8", "ignore")
+        if isinstance(body, basestring):
+            text = body
+        elif isinstance(body, (bytes, bytearray)):
+            text = body.decode("utf-8", "ignore")
+        elif hasattr(body, "tobytes"):
+            try:
+                text = body.tobytes().decode("utf-8", "ignore")
+            except Exception:
+                text = str(body)
+        else:
+            try:
+                text = memoryview(body).tobytes().decode("utf-8", "ignore")
+            except Exception:
+                text = str(body)
         tokens = []
         tokens.extend(extract_tokens_from_json(text))
         tokens.extend(extract_tokens_from_xml(text))
