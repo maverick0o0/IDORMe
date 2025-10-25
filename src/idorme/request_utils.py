@@ -213,11 +213,11 @@ def _quote(value):
 
 def pick_random_identifier(exclude=None):
     """Return a random 4-6 digit identifier avoiding ``exclude``."""
-    exclude = set(exclude or [])
-    candidate = random.randint(100, 9999)
+    exclude = {str(value) for value in (exclude or [])}
+    candidate = str(random.randint(100, 9999))
     while candidate in exclude:
-        candidate = random.randint(100, 9999)
-    return str(candidate)
+        candidate = str(random.randint(100, 9999))
+    return candidate
 
 
 def parse_request_template(helpers, message_info):
