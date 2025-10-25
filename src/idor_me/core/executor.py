@@ -110,9 +110,16 @@ class RequestExecutor(object):
             return None
         response = HttpResponse.from_burp(self.helpers, response_info)
         body = response.body or ""
+        body_bytes = body
+        if isinstance(body_bytes, bytearray):
+            body_bytes = bytes(body_bytes)
+        if isinstance(body_bytes, str):
+            body_bytes = body_bytes.encode("utf-8", "ignore")
+        if not body_bytes:
+            body_bytes = b""
         baseline_len = baseline_info["length"]
         delta_len = len(body) - baseline_len
-        hash_digest = hashlib.sha256(body if body else "").hexdigest()
+        hash_digest = hashlib.sha256(body_bytes).hexdigest()
         hash_short = hash_digest[:8]
         hash_changed = hash_digest != baseline_info["hash"]
         owner_score = {"label": "None", "score": 0, "tokens": []}
@@ -161,16 +168,25 @@ class RequestExecutor(object):
         baseline = {
             "status": None,
             "length": 0,
-            "hash": hashlib.sha256("").hexdigest(),
+            "hash": hashlib.sha256(b"").hexdigest(),
             "owner_tokens": [],
         }
         if not helpers or not response_info:
             return baseline
         response = HttpResponse.from_burp(helpers, response_info)
+        if response.status_code == 0 and not response.headers and not response.body:
+            return baseline
         body = response.body or ""
+        body_bytes = body
+        if isinstance(body_bytes, bytearray):
+            body_bytes = bytes(body_bytes)
+        if isinstance(body_bytes, str):
+            body_bytes = body_bytes.encode("utf-8", "ignore")
+        if not body_bytes:
+            body_bytes = b""
         baseline["status"] = response.status_code
         baseline["length"] = len(body)
-        baseline["hash"] = hashlib.sha256(body if body else "").hexdigest()
+        baseline["hash"] = hashlib.sha256(body_bytes).hexdigest()
         if self.owner_inference:
             baseline["owner_tokens"] = self.owner_inference.extract_tokens(body)
         return baseline

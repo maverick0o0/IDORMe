@@ -148,6 +148,8 @@ class HttpResponse(object):
     @classmethod
     def from_burp(cls, helpers, message_info):
         response = message_info.getResponse()
+        if response is None:
+            return cls(0, [], "")
         analyzed = helpers.analyzeResponse(response)
         headers = []
         for header in analyzed.getHeaders():
