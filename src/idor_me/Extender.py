@@ -115,7 +115,8 @@ class BurpExtender(
         self._callbacks = callbacks
         self._helpers = callbacks.getHelpers()
         callbacks.setExtensionName(self.EXTENSION_NAME)
-        callbacks.addSuiteTab(self)
+        if self._main_panel.has_real_ui():
+            callbacks.addSuiteTab(self)
         callbacks.registerContextMenuFactory(self)
         callbacks.registerHttpListener(self)
         self._executor.configure(callbacks=callbacks, helpers=self._helpers)
