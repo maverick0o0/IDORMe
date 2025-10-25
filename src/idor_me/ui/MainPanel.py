@@ -27,11 +27,18 @@ from ..core.executor import ExecutionOptions
 
 
 class _FallbackPanel(object):
+    """Minimal stand-in used when Swing isn't available."""
+
     def __init__(self):
         self._results = []
+        self._run_handler = None
+        self._stop_handler = None
+        self._clear_handler = None
+        self._export_handler = None
+        self._row_handler = None
 
     def getComponent(self):
-        return self
+        return None
 
     def get_user_inputs(self):
         return {"name": None, "attacker": None, "victim": None}
@@ -87,8 +94,10 @@ class MainPanel(object):
         self._stop_handler = None
         self._clear_handler = None
         self._export_handler = None
+        self._component = None
+        self._fallback = None
         if not SWING_AVAILABLE:
-            self._component = _FallbackPanel()
+            self._fallback = _FallbackPanel()
             return
         self._build_ui()
 
@@ -96,11 +105,18 @@ class MainPanel(object):
     # Public API
     # ------------------------------------------------------------------
     def getComponent(self):
-        return self._component
+        if self._component is not None:
+            return self._component
+        if self._fallback is not None:
+            return self._fallback.getComponent()
+        return None
+
+    def has_real_ui(self):
+        return self._component is not None
 
     def get_user_inputs(self):
-        if not SWING_AVAILABLE:
-            return self._component.get_user_inputs()
+        if not SWING_AVAILABLE and self._fallback is not None:
+            return self._fallback.get_user_inputs()
         return {
             "name": self._param_name.getText().strip() or None,
             "attacker": self._attacker_value.getText().strip() or None,
@@ -108,8 +124,8 @@ class MainPanel(object):
         }
 
     def get_execution_options(self):
-        if not SWING_AVAILABLE:
-            return self._component.get_execution_options()
+        if not SWING_AVAILABLE and self._fallback is not None:
+            return self._fallback.get_execution_options()
         return ExecutionOptions(
             safe_mode=self._safe_mode.isSelected(),
             follow_redirects=self._follow_redirects.isSelected(),
@@ -120,8 +136,9 @@ class MainPanel(object):
         )
 
     def display_result(self, result):
-        if not SWING_AVAILABLE:
-            self._component.display_result(result)
+        if not SWING_AVAILABLE and self._fallback is not None:
+            self._fallback.display_result(result)
+            self._results.append(result)
             return
         self._results.append(result)
         owner = result["owner"]
@@ -145,8 +162,9 @@ class MainPanel(object):
         SwingUtilities.invokeLater(_RunLater(lambda: self._table_model.addRow(row)))
 
     def clear_results(self):
-        if not SWING_AVAILABLE:
-            self._component.clear_results()
+        if not SWING_AVAILABLE and self._fallback is not None:
+            self._fallback.clear_results()
+            self._results = []
             return
         self._results = []
         def _clear():
@@ -155,38 +173,38 @@ class MainPanel(object):
         SwingUtilities.invokeLater(_RunLater(_clear))
 
     def set_run_handler(self, handler):
-        if not SWING_AVAILABLE:
-            self._component.set_run_handler(handler)
+        if not SWING_AVAILABLE and self._fallback is not None:
+            self._fallback.set_run_handler(handler)
             return
         self._run_handler = handler
 
     def set_stop_handler(self, handler):
-        if not SWING_AVAILABLE:
-            self._component.set_stop_handler(handler)
+        if not SWING_AVAILABLE and self._fallback is not None:
+            self._fallback.set_stop_handler(handler)
             return
         self._stop_handler = handler
 
     def set_clear_handler(self, handler):
-        if not SWING_AVAILABLE:
-            self._component.set_clear_handler(handler)
+        if not SWING_AVAILABLE and self._fallback is not None:
+            self._fallback.set_clear_handler(handler)
             return
         self._clear_handler = handler
 
     def set_export_handler(self, handler):
-        if not SWING_AVAILABLE:
-            self._component.set_export_handler(handler)
+        if not SWING_AVAILABLE and self._fallback is not None:
+            self._fallback.set_export_handler(handler)
             return
         self._export_handler = handler
 
     def set_row_handler(self, handler):
-        if not SWING_AVAILABLE:
-            self._component.set_row_handler(handler)
+        if not SWING_AVAILABLE and self._fallback is not None:
+            self._fallback.set_row_handler(handler)
             return
         self._row_handler = handler
 
     def export_csv(self, parent):
-        if not SWING_AVAILABLE:
-            self._component.export_csv()
+        if not SWING_AVAILABLE and self._fallback is not None:
+            self._fallback.export_csv()
             return
         chooser = JFileChooser()
         if chooser.showSaveDialog(parent) == JFileChooser.APPROVE_OPTION:
