@@ -136,6 +136,8 @@ class BurpExtender(
     # Context menu factory
     # ------------------------------------------------------------------
     def createMenuItems(self, invocation):  # pragma: no cover - Burp callback
+        if invocation is None:
+            return []
         selected = invocation.getSelectedMessages()
         if not selected:
             return []
