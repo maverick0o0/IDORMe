@@ -1,41 +1,43 @@
 # IDORMe Burp Suite Extension
 
-IDORMe is a Burp Suite extension that assists penetration testers when
-hunting for Insecure Direct Object Reference (IDOR) vulnerabilities.  It
-provides a reproducible mutation engine, a queue based executor and a
-set of heuristics to infer the likely owner of a request.
+IDORMe is a Burp Suite extension (Jython 2.7) that stress-tests a single
+captured, authenticated request for IDOR weaknesses. It takes the
+selected request, generates a catalogue of bypass mutations (path, query,
+body and verb tricks), sends them within the same session and scores the
+responses using lightweight owner inference heuristics.
 
-## Features
+## Usage
 
-* **Burp Integration** – Registers a suite tab and context menu action to
-  send requests to the extension.
-* **Mutation Engine** – Applies deterministic rules to parameters so it
-  is easy to reason about which payloads were generated.
-* **Execution Queue** – Mutated requests can be replayed using a
-  user-provided transport function.  For safety the default executor does
-  not send network traffic.
-* **Owner Inference** – Path, parameter and header heuristics are used to
-  guess which account owns the request so testers can prioritise their
-  analysis.
+1. Load the extension in Burp Suite (**Extender → Extensions → Add** →
+   *Extension type* `Python`).
+2. Capture an authenticated request in Proxy/Repeater, right-click and
+   choose **Send to IDORMe**.
+3. Review/adjust inputs in the **IDORMe** tab:
+   * Optional parameter/value triad.
+   * Execution toggles: Safe Mode, follow redirects, concurrency,
+     timeouts, apply global rules, apply specific rules.
+4. Click **Run All** to execute the generated mutations. Double-click any
+   result row to inspect the request/response in Burp editors.
+5. Use **Export CSV** for offline analysis.
 
-## Installation
-
-1. Build the extension into a JAR using [Jython 2.7+](https://www.jython.org/).
-2. Within Burp Suite navigate to **Extender → Extensions** and click
-   **Add**.
-3. Select **Extension type** `Python` and choose the generated JAR.
-4. Once loaded, the `IDORMe` tab becomes available and the context menu
-   entry "Send to IDORMe" appears when right-clicking HTTP traffic.
+Safe Mode blocks write verbs by default; disable it only when you
+explicitly want to exercise state-changing mutations.
 
 ## Development
 
-The project ships with a unit test suite that exercises the mutation
-rules, mutation assembly, and owner inference heuristics.
+The codebase is written to run under CPython for testing and under
+Jython inside Burp. No third-party libraries are required.
+
+Run unit tests:
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-The modules under `src/idor_me` are intentionally written so they can be
-executed using CPython for testing while remaining compatible with the
-Jython runtime used by Burp Suite.
+## Notes
+
+* The executor never alters host/authority information or baseline
+  cookies/headers.
+* If you omit the parameter triad the mutator will infer candidates and
+  generate distinct attacker/victim values automatically.
+* CSV exports include all table columns for easy diffing.

@@ -1,145 +1,205 @@
-"""Burp Suite extension entry point.
+"""IDORMe Burp extension.
 
-The implementation is written so that it can be imported inside a unit
--test friendly CPython environment.  When executed in Burp Suite the
-extension will detect the presence of the Burp APIs and instantiate the
-Swing based user interface and context menu actions required by the
-project specification.
+Design overview:
+1. :class:`BurpExtender` wires Burp APIs (callbacks, helpers, menu/tab).
+2. UI state lives in :class:`MainPanel`, which exposes user inputs/options.
+3. :mod:`mutator` builds mutation batches from the declarative catalog.
+4. :mod:`executor` sends mutations, aggregates results, and feeds the UI.
+5. Double-clicking a result opens Burp message editors backed by the extender.
 """
 
-from __future__ import annotations
+try:  # pragma: no cover - Burp runtime
+    from burp import (  # type: ignore
+        IBurpExtender,
+        ITab,
+        IContextMenuFactory,
+        IHttpListener,
+        IMessageEditorController,
+    )
+except Exception:  # pragma: no cover - unit tests
+    class IBurpExtender(object):
+        pass
 
-import importlib
-import logging
-from dataclasses import dataclass
-from typing import Callable, Iterable, List, Optional
+    class ITab(object):
+        pass
+
+    class IContextMenuFactory(object):
+        pass
+
+    class IHttpListener(object):
+        pass
+
+    class IMessageEditorController(object):
+        pass
 
 from .core.executor import RequestExecutor
-from .core.mutator import MutationContext, Mutator
-from .core.rules_catalog import build_default_rules
-from .core.httpmsg import HttpRequest
+from .core.mutator import Mutator, MutationContext
 from .core.owner_infer import OwnerInference
+from .core.httpmsg import HttpRequest
 from .ui.MainPanel import MainPanel
 
-logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Burp API compatibility layer
-# ---------------------------------------------------------------------------
-
-_burp_spec = importlib.util.find_spec("burp")
-if _burp_spec:
-    burp = importlib.import_module("burp")
-    IBurpExtender = getattr(burp, "IBurpExtender")
-    IContextMenuFactory = getattr(burp, "IContextMenuFactory")
-    IExtensionHelpers = getattr(burp, "IExtensionHelpers")
-    IHttpListener = getattr(burp, "IHttpListener", object)
-    IHttpRequestResponse = getattr(burp, "IHttpRequestResponse", object)
-else:  # pragma: no cover - exercised only inside Burp
-    class IBurpExtender:  # type: ignore[misc]
-        """Fallback stub for static analysis and unit testing."""
-
-    class IContextMenuFactory:  # type: ignore[misc]
-        pass
-
-    class IExtensionHelpers:  # type: ignore[misc]
-        pass
-
-    class IHttpListener:  # type: ignore[misc]
-        pass
-
-    class IHttpRequestResponse:  # type: ignore[misc]
-        pass
-
-
-@dataclass
-class ContextMenuAction:
-    """Represents a context menu action provided by the extension."""
-
-    caption: str
-    handler: Callable[[Iterable[HttpRequest]], None]
-
-
-class BurpExtender(IBurpExtender, IContextMenuFactory, IHttpListener):
-    """Burp Suite extension wiring.
-
-    The extender registers a single tab, context menu actions and routes
-    HTTP messages through the mutation engine.
-    """
-
+class BurpExtender(
+    IBurpExtender,
+    ITab,
+    IContextMenuFactory,
+    IHttpListener,
+    IMessageEditorController,
+):
     EXTENSION_NAME = "IDORMe"
 
-    def __init__(self) -> None:
+    def __init__(self):
         self._callbacks = None
-        self._helpers: Optional[IExtensionHelpers] = None
-        self._mutator = Mutator(build_default_rules())
-        self._executor = RequestExecutor()
+        self._helpers = None
+        self._mutator = Mutator()
         self._owner_inference = OwnerInference()
-        self._main_panel = MainPanel(mutator=self._mutator, executor=self._executor)
-        self._context_actions: List[ContextMenuAction] = [
-            ContextMenuAction(
-                "Send to IDORMe",
-                handler=self._handle_context_menu_selection,
-            )
-        ]
+        self._executor = RequestExecutor(self._owner_inference)
+        self._main_panel = MainPanel(self._mutator, self._executor)
+        self._main_panel.set_run_handler(self._run_last_request)
+        self._main_panel.set_stop_handler(self._executor.stop)
+        self._main_panel.set_clear_handler(self._main_panel.clear_results)
+        self._main_panel.set_export_handler(self._main_panel.export_csv)
+        self._main_panel.set_row_handler(self._show_result_viewers)
+        self._executor.configure(owner_inference=self._owner_inference, result_listener=self._handle_result)
+        self._current_result = None
+        self._last_request = None
+        self._last_message = None
+        self._request_editor = None
+        self._response_editor = None
+        self._viewer_dialog = None
 
     # ------------------------------------------------------------------
-    # Burp callbacks lifecycle
+    # Burp lifecycle
     # ------------------------------------------------------------------
-    def registerExtenderCallbacks(self, callbacks) -> None:  # pragma: no cover - invoked by Burp
-        """Entry point used by Burp Suite."""
-
+    def registerExtenderCallbacks(self, callbacks):  # pragma: no cover - Burp entry point
         self._callbacks = callbacks
         self._helpers = callbacks.getHelpers()
         callbacks.setExtensionName(self.EXTENSION_NAME)
-        callbacks.addSuiteTab(self._main_panel)
+        callbacks.addSuiteTab(self)
         callbacks.registerContextMenuFactory(self)
         callbacks.registerHttpListener(self)
-        logger.info("%s extension registered", self.EXTENSION_NAME)
+        self._executor.configure(callbacks=callbacks, helpers=self._helpers)
+        self._request_editor = callbacks.createMessageEditor(self, False)
+        self._response_editor = callbacks.createMessageEditor(self, True)
 
     # ------------------------------------------------------------------
-    # Context menu factory implementation
+    # ITab implementation
     # ------------------------------------------------------------------
-    def createMenuItems(self, invocation):  # pragma: no cover - requires Burp
-        selected_messages = invocation.getSelectedMessages()
-        if not selected_messages:
+    def getTabCaption(self):  # pragma: no cover - Burp calls
+        return self.EXTENSION_NAME
+
+    def getUiComponent(self):  # pragma: no cover - Burp calls
+        return self._main_panel.getComponent()
+
+    # ------------------------------------------------------------------
+    # Context menu factory
+    # ------------------------------------------------------------------
+    def createMenuItems(self, invocation):  # pragma: no cover - Burp callback
+        selected = invocation.getSelectedMessages()
+        if not selected:
             return []
+        try:
+            from java.util import ArrayList
+            from javax.swing import JMenuItem
+        except Exception:
+            return []
+        items = ArrayList()
+        menu_item = JMenuItem("Send to IDORMe")
 
-        from java.util import ArrayList  # type: ignore
-        from javax.swing import JMenuItem  # type: ignore
+        def _perform(_event, messages=selected):
+            self._handle_context_messages(messages)
 
-        menu_items = ArrayList()
-        for action in self._context_actions:
-            item = JMenuItem(action.caption)
-            def _perform_action(_evt, handler=action.handler, messages=selected_messages):
-                http_requests = [
-                    HttpRequest.from_burp(self._helpers, message)  # type: ignore[arg-type]
-                    for message in messages
-                ]
-                handler(http_requests)
-
-            item.addActionListener(_perform_action)
-            menu_items.add(item)
-        return menu_items
+        menu_item.addActionListener(_perform)
+        items.add(menu_item)
+        return items
 
     # ------------------------------------------------------------------
-    # IHttpListener implementation
+    # IHttpListener
     # ------------------------------------------------------------------
-    def processHttpMessage(self, tool_flag, message_is_request, message_info):  # pragma: no cover - requires Burp
-        if not message_is_request or tool_flag != self._callbacks.TOOL_PROXY:
-            return
-        request = HttpRequest.from_burp(self._helpers, message_info)
-        self._mutator.inspect_live_traffic(request)
+    def processHttpMessage(self, tool_flag, message_is_request, message_info):  # pragma: no cover - Burp callback
+        pass
+
+    # ------------------------------------------------------------------
+    # IMessageEditorController
+    # ------------------------------------------------------------------
+    def getHttpService(self):  # pragma: no cover - Burp callback
+        if not self._current_result:
+            return None
+        return self._last_message.getHttpService() if self._last_message else None
+
+    def getRequest(self):  # pragma: no cover - Burp callback
+        if not self._current_result:
+            return None
+        return self._current_result.get("raw_request")
+
+    def getResponse(self):  # pragma: no cover - Burp callback
+        if not self._current_result or not self._current_result.get("raw_response"):
+            return None
+        return self._current_result["raw_response"].getResponse()
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-    def _handle_context_menu_selection(self, http_requests: Iterable[HttpRequest]) -> None:
-        for request in http_requests:
-            for context in MutationContext.from_request(request):
-                mutations = self._mutator.generate_mutations(context)
-                owner = self._owner_inference.infer_owner(request)
-                self._executor.enqueue(request, mutations, owner)
+    def _handle_context_messages(self, messages):
+        if not messages:
+            return
+        self._main_panel.clear_results()
+        message = messages[0]
+        self._last_message = message
+        request = HttpRequest.from_burp(self._helpers, message)
+        self._last_request = request
+        self._run_for_request(request, message)
+
+    def _run_for_request(self, request, message_info):
+        user_inputs = self._main_panel.get_user_inputs()
+        context = MutationContext.build(request, user_inputs)
+        options = self._main_panel.get_execution_options()
+        self._executor.set_options(options)
+        mutations = self._mutator.generate_mutations(
+            context,
+            apply_global=options.apply_global,
+            apply_specific=options.apply_specific,
+        )
+        if not mutations:
+            return
+        baseline_response = message_info
+        self._executor.enqueue(request, baseline_response, mutations)
+
+    def _handle_result(self, result):
+        self._main_panel.display_result(result)
+
+    def _run_last_request(self):
+        if self._last_request and self._last_message:
+            self._main_panel.clear_results()
+            self._run_for_request(self._last_request, self._last_message)
+
+    def _show_result_viewers(self, result):
+        self._current_result = result
+        if not self._request_editor or not self._response_editor or not self._callbacks:
+            return
+        self._request_editor.setMessage(result.get("raw_request"), True)
+        raw_response = result.get("raw_response")
+        if raw_response:
+            self._response_editor.setMessage(raw_response.getResponse(), False)
+        self._ensure_viewer_dialog()
+        if self._viewer_dialog:
+            self._viewer_dialog.setVisible(True)
+
+    def _ensure_viewer_dialog(self):
+        if self._viewer_dialog or not self._callbacks or not self._request_editor:
+            return
+        try:
+            from javax.swing import JDialog, JTabbedPane
+        except Exception:
+            return
+        frame = self._callbacks.getBurpFrame()
+        dialog = JDialog(frame, "IDORMe result", False)
+        tabs = JTabbedPane()
+        tabs.addTab("Request", self._request_editor.getComponent())
+        tabs.addTab("Response", self._response_editor.getComponent())
+        dialog.getContentPane().add(tabs)
+        dialog.setSize(800, 600)
+        self._viewer_dialog = dialog
 
 
-__all__ = ["BurpExtender", "ContextMenuAction"]
+__all__ = ["BurpExtender"]

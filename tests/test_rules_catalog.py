@@ -1,34 +1,32 @@
-from __future__ import annotations
-
 import os
 import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from idor_me.core.rules_catalog import MutationContext, build_default_rules
+from idor_me.core.httpmsg import HttpRequest
+from idor_me.core.mutator import MutationContext, Mutator
+from idor_me.core.rules_catalog import build_default_rules
 
 
 class RulesCatalogTests(unittest.TestCase):
-    def test_rules_sorted_by_order(self):
-        rules = build_default_rules()
-        orders = [rule.order for rule in rules]
-        self.assertEqual(orders, sorted(orders))
+    def setUp(self):
+        self.mutator = Mutator(build_default_rules())
 
-    def test_numeric_rules_generate_expected_payloads(self):
-        request = object()
-        context = MutationContext(request, "limit", "10")
-        increment = next(rule for rule in build_default_rules() if rule.name == "numeric_increment")
-        decrement = next(rule for rule in build_default_rules() if rule.name == "numeric_decrement")
-        self.assertEqual(increment.generate(context), ["11"])
-        self.assertEqual(decrement.generate(context), ["9"])
+    def test_rules_sorted_by_priority(self):
+        request = HttpRequest(None, "GET", "/api/users/101", "", [], "")
+        context = MutationContext.build(request, {"name": None, "attacker": None, "victim": None})
+        mutations = self.mutator.generate_mutations(context)
+        rule_order = [mutation.rule_id for mutation in mutations[:5]]
+        self.assertIn("G-01", rule_order[0])
 
-    def test_owner_placeholder_rule_only_applies_to_user_parameters(self):
-        context_user = MutationContext(object(), "user", "bob")
-        context_other = MutationContext(object(), "resource", "bob")
-        owner_rule = next(rule for rule in build_default_rules() if rule.name == "owner_placeholder")
-        self.assertEqual(owner_rule.generate(context_user), ["{{CURRENT_USER}}", "{{OTHER_USER}}"])
-        self.assertEqual(owner_rule.generate(context_other), [])
+    def test_query_rules_included(self):
+        request = HttpRequest(None, "GET", "/api/users/edit", "userId=100", [], "")
+        context = MutationContext.build(request, {"name": "userId", "attacker": "100", "victim": "200"})
+        mutations = self.mutator.generate_mutations(context)
+        ids = set([mutation.rule_id for mutation in mutations])
+        self.assertIn("B3-03", ids)
+        self.assertIn("G-02", ids)
 
 
 if __name__ == "__main__":  # pragma: no cover
