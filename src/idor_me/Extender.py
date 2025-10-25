@@ -46,7 +46,12 @@ except ValueError:  # pragma: no cover - executed when run as a loose script
     import os
     import sys
 
-    _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    module_path = globals().get("__file__", sys.argv[0] if sys.argv else "")
+    if not module_path:
+        module_path = os.getcwd()
+    if not os.path.isabs(module_path):
+        module_path = os.path.join(os.getcwd(), module_path)
+    _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(module_path)))
     if _ROOT not in sys.path:
         sys.path.insert(0, _ROOT)
 
