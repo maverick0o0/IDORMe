@@ -36,6 +36,7 @@ _RUNNING_ON_JYTHON = platform.python_implementation().lower() == "jython"
 if _RUNNING_ON_JYTHON:
     try:  # pragma: no cover - depends on runtime
         import org.xml.sax  # noqa: F401  # type: ignore
+        import org.apache.xerces.parsers.SAXParser  # noqa: F401  # type: ignore
     except Exception:  # pragma: no cover - Xerces absent
         _XML_SUPPORTED = False
     else:  # pragma: no cover - Xerces available
