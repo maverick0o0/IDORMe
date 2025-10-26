@@ -1,6 +1,9 @@
 import os
 import sys
 import unittest
+from unittest import mock
+
+from xml.sax import SAXException
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -33,6 +36,12 @@ class OwnerInferenceTests(unittest.TestCase):
         baseline_tokens = ["100"]
         result = self.infer.score(200, baseline_tokens, 200, '{"userId": 200}', 50, True)
         self.assertEqual(result["label"], "Likely")
+
+    def test_extract_tokens_handles_xml_parser_errors(self):
+        body = "<root><uid>200</uid><contact>bob@example.org</contact></root>"
+        with mock.patch("idor_me.core.owner_infer.ET.fromstring", side_effect=SAXException("no parser")):
+            tokens = self.infer.extract_tokens(body)
+        self.assertIn("bob@example.org", tokens)
 
 
 if __name__ == "__main__":  # pragma: no cover
