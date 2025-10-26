@@ -1,8 +1,47 @@
 """Owner inference heuristics for IDORMe."""
 
 import json
+import platform
 import re
-import xml.etree.ElementTree as ET
+
+try:  # pragma: no cover - guard for optional XML support
+    import xml.etree.ElementTree as ET
+except Exception:  # pragma: no cover - ElementTree unavailable
+    ET = None
+
+try:  # pragma: no cover - optional dependency on xml.sax
+    from xml.sax import SAXException
+except Exception:  # pragma: no cover - xml.sax unavailable
+    SAXException = None
+
+_XML_PARSE_ERRORS = []
+if ET is not None:  # pragma: no branch - executed when ET available
+    for attr in ("ParseError", "XMLParserError", "XMLParseError", "JavaError"):
+        err = getattr(ET, attr, None)
+        if isinstance(err, type):
+            _XML_PARSE_ERRORS.append(err)
+if isinstance(SAXException, type):
+    _XML_PARSE_ERRORS.append(SAXException)
+try:  # pragma: no cover - Jython specific classes
+    from java.lang import ClassNotFoundException, NoClassDefFoundError  # type: ignore
+except Exception:  # pragma: no cover - java runtime not present
+    ClassNotFoundException = None
+    NoClassDefFoundError = None
+else:  # pragma: no cover - executed only on Jython
+    _XML_PARSE_ERRORS.extend([ClassNotFoundException, NoClassDefFoundError])
+
+_XML_PARSE_ERRORS = tuple({err for err in _XML_PARSE_ERRORS if isinstance(err, type)})
+
+_RUNNING_ON_JYTHON = platform.python_implementation().lower() == "jython"
+if _RUNNING_ON_JYTHON:
+    try:  # pragma: no cover - depends on runtime
+        import org.xml.sax  # noqa: F401  # type: ignore
+    except Exception:  # pragma: no cover - Xerces absent
+        _XML_SUPPORTED = False
+    else:  # pragma: no cover - Xerces available
+        _XML_SUPPORTED = ET is not None
+else:
+    _XML_SUPPORTED = ET is not None
 
 try:
     basestring
@@ -53,9 +92,12 @@ def extract_tokens_from_json(text):
 
 
 def extract_tokens_from_xml(text):
+    if not _XML_SUPPORTED or ET is None:
+        return []
+    parse_errors = _XML_PARSE_ERRORS + (Exception,)
     try:
         root = ET.fromstring(text)
-    except Exception:
+    except parse_errors:
         return []
     tokens = []
     for element in root.iter():
